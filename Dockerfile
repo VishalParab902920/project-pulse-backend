@@ -19,4 +19,7 @@ COPY app/ ./app/
 EXPOSE 8000
 
 # Run with production workers
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+#CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+
+# Start FastAPI using the dynamic Render PORT environment variable and limit to 1 worker
+CMD uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
