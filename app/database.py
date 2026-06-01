@@ -27,12 +27,18 @@ database_url = URL.create(
 )
 
 # Async engine with production-grade pool settings
+# statement_cache_size=0 disables asyncpg prepared statement caching,
+# required for Supabase PgBouncer transaction-pool mode compatibility.
 engine = create_async_engine(
     database_url,
     pool_size=20,
     max_overflow=10,
     pool_pre_ping=True,
     echo=settings.debug,
+    connect_args={
+        "statement_cache_size": 0,
+        "prepared_statement_cache_size": 0,
+    },
 )
 
 # Async session factory
