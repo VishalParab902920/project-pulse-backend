@@ -39,6 +39,7 @@ class BiometricCreateRequest(BaseModel):
     dob: date
     gender: str = Field(max_length=50)
     height_cm: float
+    weight_kg: float | None = None
     activity_level: str = Field(max_length=50)
     fitness_goal: str = Field(max_length=50)
     calculated_bmr: float
@@ -111,6 +112,7 @@ async def create_biometrics(
         dob=payload.dob,
         gender=payload.gender,
         height_cm=payload.height_cm,
+        weight_kg=payload.weight_kg,
         activity_level=payload.activity_level,
         fitness_goal=payload.fitness_goal,
         calculated_bmr=payload.calculated_bmr,
@@ -230,6 +232,8 @@ async def log_weight(
         )
 
     # Create new versioned row with weight update
+    # Use the user-selected date (logged_at) as the created_at timestamp
+    logged_datetime = datetime.combine(payload.logged_at, datetime.min.time())
     new_bio = UserBiometric(
         id=uuid.uuid4(),
         user_id=user_id,
@@ -246,6 +250,9 @@ async def log_weight(
         target_carbs_g=latest.target_carbs_g,
         target_fat_g=latest.target_fat_g,
     )
+    # Override server default with user-selected date
+    new_bio.created_at = logged_datetime
+    new_bio.updated_at = logged_datetime
     db.add(new_bio)
     await db.commit()
     await db.refresh(new_bio)
@@ -265,7 +272,12 @@ async def get_weight_history(
     current_user: ProfileResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Returns weight entries for the last N days."""
+    """
+    Returns weight entries for the last N days.
+    Deduplicates by date — keeps only the latest entry per day.
+    Falls back to the user's most recent biometric row if no dedicated
+    weight entries exist (e.g., new user who just completed onboarding).
+    """
     user_id = current_user.id
     cutoff = date.today() - timedelta(days=days)
 
@@ -283,11 +295,31 @@ async def get_weight_history(
     result = await db.execute(stmt)
     rows = result.scalars().all()
 
-    return [
-        {"date": row.created_at.date().isoformat(), "weight_kg": float(row.weight_kg)}
-        for row in rows
-        if row.weight_kg
-    ]
+    # Deduplicate by date — keep only the latest entry per day
+    by_date: dict[str, float] = {}
+    for row in rows:
+        if row.weight_kg:
+            day_str = row.created_at.date().isoformat()
+            by_date[day_str] = float(row.weight_kg)  # later entries overwrite earlier ones
+
+    entries = [{"date": d, "weight_kg": w} for d, w in sorted(by_date.items())]
+
+    # Fallback: if no weight entries found, check the latest biometric row
+    if not entries:
+        fallback_stmt = (
+            select(UserBiometric)
+            .where(UserBiometric.user_id == user_id)
+            .order_by(UserBiometric.created_at.desc())
+            .limit(1)
+        )
+        fallback_result = await db.execute(fallback_stmt)
+        latest_bio = fallback_result.scalar_one_or_none()
+        if latest_bio and latest_bio.weight_kg:
+            entries = [
+                {"date": latest_bio.created_at.date().isoformat(), "weight_kg": float(latest_bio.weight_kg)}
+            ]
+
+    return entries
 
 
 # =============================================================

@@ -7,13 +7,14 @@ Features:
 - Localized meal window heuristic (timezone-aware)
 - Rich structured JSON response payloads
 - Semantic memory storage
+- Conversational history hydration (GET /history)
 
 Prefix: /api/v2/ai
 """
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone as tz
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from google import genai
@@ -21,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.models.ai import ChatMessage, Conversation
 from app.models.identity import Profile
 from app.routers.dependencies import get_current_user
 from app.schemas.identity import ProfileResponse
@@ -36,6 +38,81 @@ router = APIRouter(
     prefix="/api/v2/ai",
     tags=["AI Capture"],
 )
+
+
+@router.get("/history")
+async def get_chat_history(
+    current_user: ProfileResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Retrieves the authenticated user's active conversation history.
+
+    - Finds the user's active (un-pruned) conversation.
+    - If none exists, creates a new one.
+    - Returns the last 20 messages sorted chronologically (ASC).
+    """
+    logger.info(f"[API] GET /ai/history — user: {str(current_user.id)[:8]}")
+
+    try:
+        # Find active, un-pruned conversation for this user
+        stmt = (
+            select(Conversation)
+            .where(
+                Conversation.user_id == current_user.id,
+                Conversation.is_active == True,
+            )
+            .order_by(Conversation.started_at.desc())
+            .limit(1)
+        )
+        result = await db.execute(stmt)
+        conversation = result.scalar_one_or_none()
+
+        # If no active conversation exists, create one
+        if conversation is None:
+            conversation = Conversation(
+                user_id=current_user.id,
+                started_at=datetime.utcnow(),
+                is_active=True,
+            )
+            db.add(conversation)
+            await db.flush()
+            await db.refresh(conversation)
+            logger.info(
+                f"[API] Created new conversation {str(conversation.id)[:8]} for user {str(current_user.id)[:8]}"
+            )
+
+        # Query the last 20 messages for this conversation, sorted chronologically
+        msg_stmt = (
+            select(ChatMessage)
+            .where(ChatMessage.conversation_id == conversation.id)
+            .order_by(ChatMessage.created_at.asc())
+            .limit(20)
+        )
+        msg_result = await db.execute(msg_stmt)
+        messages = msg_result.scalars().all()
+
+        await db.commit()
+
+        return {
+            "conversation_id": str(conversation.id),
+            "messages": [
+                {
+                    "id": str(msg.id),
+                    "role": msg.role,
+                    "content": msg.content,
+                    "created_at": msg.created_at.isoformat() if msg.created_at else None,
+                }
+                for msg in messages
+            ],
+        }
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"[API] GET /ai/history failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve chat history: {str(e)}",
+        )
 
 
 def _resolve_meal_type_from_hour(hour: int) -> str:
