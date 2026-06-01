@@ -19,12 +19,14 @@ class Settings(BaseSettings):
     # --- Supabase API ---
     supabase_url: str = ""
     supabase_key: str = ""
+    supabase_jwt_secret: str = ""  # Supabase JWT secret for local token verification
 
     # --- Gemini AI ---
     gemini_api_key: str = ""
 
-    # --- Encryption (for BYOK key storage) ---
-    encryption_key: str = ""  # Fernet key — generate with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # --- Encryption (Envelope Encryption Architecture) ---
+    master_kek: str = ""  # Base64-encoded 32-byte AES-256 Master Key Encryption Key
+    encryption_key: str = ""  # Legacy Fernet key (deprecated, kept for migration)
 
     # --- Application ---
     environment: str = "development"

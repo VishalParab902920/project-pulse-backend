@@ -1,19 +1,24 @@
 """
-Project Pulse — Database Connection
-SQLAlchemy engine and session management for Supabase PostgreSQL.
+Project Pulse V2 — Async Database Connection
+SQLAlchemy 2.0 async engine and session management for Supabase PostgreSQL 15+.
 
-Uses URL.create() to safely handle passwords containing special characters
-(like @, #, %) without requiring manual URL-encoding in .env files.
+Uses asyncpg driver with connection pooling optimized for production workloads.
 """
 
-from sqlalchemy import create_engine, URL
-from sqlalchemy.orm import DeclarativeBase, sessionmaker
+from sqlalchemy import URL
+from sqlalchemy.ext.asyncio import (
+    AsyncAttrs,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.orm import DeclarativeBase
 
 from app.config import settings
 
-# Build the connection URL programmatically — handles special chars in password
+# Build the async connection URL programmatically — handles special chars in password
 database_url = URL.create(
-    drivername="postgresql",
+    drivername="postgresql+asyncpg",
     username=settings.supabase_db_user,
     password=settings.supabase_db_password,
     host=settings.supabase_db_host,
@@ -21,25 +26,32 @@ database_url = URL.create(
     database=settings.supabase_db_name,
 )
 
-engine = create_engine(
+# Async engine with production-grade pool settings
+engine = create_async_engine(
     database_url,
-    pool_pre_ping=True,
-    pool_size=5,
+    pool_size=20,
     max_overflow=10,
+    pool_pre_ping=True,
+    echo=settings.debug,
 )
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# Async session factory
+async_session = async_sessionmaker(
+    bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
 
 
-class Base(DeclarativeBase):
-    """Base class for all SQLAlchemy ORM models."""
+class Base(AsyncAttrs, DeclarativeBase):
+    """Base class for all SQLAlchemy ORM models with async attribute support."""
     pass
 
 
-def get_db():
-    """FastAPI dependency that yields a database session."""
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+async def get_db():
+    """FastAPI dependency that yields an async database session."""
+    async with async_session() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
