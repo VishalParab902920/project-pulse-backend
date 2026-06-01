@@ -185,6 +185,7 @@ async def get_current_user(
                 "verify_iss": False,
                 "verify_aud": True,
             },
+            leeway=30,  # Allow 30 seconds of clock skew between client and server
         )
     except ExpiredSignatureError as e:
         logger.warning(f"[AUTH] Token expired: {e}")
