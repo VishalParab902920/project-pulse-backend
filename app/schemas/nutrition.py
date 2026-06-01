@@ -27,6 +27,7 @@ class FoodDictionaryBase(BaseSchema):
     carbs_per_100g: float
     fat_per_100g: float
     is_verified: bool = False
+    barcode: str | None = None
 
 
 class FoodDictionaryCreate(FoodDictionaryBase):

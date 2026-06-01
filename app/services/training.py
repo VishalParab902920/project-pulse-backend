@@ -159,7 +159,7 @@ class TrainingService:
             user_id=user_id,
             template_id=template_id,
             name=name or "Workout Session",
-            started_at=datetime.now(timezone.utc),
+            started_at=datetime.utcnow(),
             completed_at=None,
             total_volume_kg=None,
         )
@@ -228,7 +228,7 @@ class TrainingService:
             if s.completed
         )
 
-        session.completed_at = datetime.now(timezone.utc)
+        session.completed_at = datetime.utcnow()
         session.total_volume_kg = total_volume
 
         await db.commit()

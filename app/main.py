@@ -82,6 +82,7 @@ from app.routers.v2_ai import router as ai_router
 from app.routers.v2_telemetry import router as telemetry_router
 from app.routers.v2_reports import router as reports_router
 from app.routers.v2_profile import router as profile_v2_router
+from app.routers.v2_analytics import router as analytics_router
 
 app.include_router(health_router)
 app.include_router(nutrition_router)
@@ -90,6 +91,7 @@ app.include_router(ai_router)
 app.include_router(telemetry_router)
 app.include_router(reports_router)
 app.include_router(profile_v2_router)
+app.include_router(analytics_router)
 
 
 @app.on_event("startup")

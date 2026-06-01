@@ -31,6 +31,7 @@ class FoodDictionary(Base):
     carbs_per_100g: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False)
     fat_per_100g: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    barcode: Mapped[str | None] = mapped_column(String(100), nullable=True, unique=True)
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("profiles.id", ondelete="SET NULL"),

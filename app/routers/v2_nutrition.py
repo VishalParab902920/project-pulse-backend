@@ -298,6 +298,29 @@ class CustomFoodCreate(BaseModel):
     fat_per_100g: float = Field(ge=0)
 
 
+@router.delete("/recipe/{recipe_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_recipe(
+    recipe_id: uuid.UUID,
+    current_user: ProfileResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Deletes a recipe owned by the authenticated user."""
+    from sqlalchemy import delete as sql_delete
+
+    stmt = select(Recipe).where(
+        and_(Recipe.id == recipe_id, Recipe.user_id == current_user.id)
+    )
+    result = await db.execute(stmt)
+    recipe = result.scalar_one_or_none()
+
+    if not recipe:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found")
+
+    await db.execute(sql_delete(RecipeIngredient).where(RecipeIngredient.recipe_id == recipe_id))
+    await db.execute(sql_delete(Recipe).where(Recipe.id == recipe_id))
+    await db.commit()
+
+
 @router.post("/food", status_code=status.HTTP_201_CREATED)
 async def create_custom_food(
     payload: CustomFoodCreate,
@@ -361,3 +384,74 @@ async def search_food_catalog(
         }
         for f in foods
     ]
+
+
+@router.get("/recipes")
+async def list_user_recipes(
+    current_user: ProfileResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Returns all recipes belonging to the authenticated user."""
+    from sqlalchemy.orm import selectinload
+
+    stmt = (
+        select(Recipe)
+        .where(Recipe.user_id == current_user.id)
+        .options(selectinload(Recipe.ingredients).selectinload(RecipeIngredient.food))
+        .order_by(Recipe.created_at.desc())
+    )
+    result = await db.execute(stmt)
+    recipes = result.scalars().all()
+
+    return [
+        {
+            "id": str(r.id),
+            "title": r.title,
+            "instructions": r.instructions,
+            "ingredients": [
+                {
+                    "food_id": str(ing.food_id),
+                    "weight_g": float(ing.weight_g),
+                    "food_name": ing.food.name if ing.food else None,
+                }
+                for ing in (r.ingredients or [])
+            ],
+            "created_at": r.created_at.isoformat(),
+        }
+        for r in recipes
+    ]
+
+
+@router.get("/barcode/{code}")
+async def lookup_barcode(
+    code: str,
+    current_user: ProfileResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Database-first barcode lookup.
+    1. Check food_dictionary for matching barcode
+    2. If not found, return 404 (frontend handles OFF fallback)
+    """
+    from app.models.nutrition import FoodDictionary
+
+    stmt = select(FoodDictionary).where(FoodDictionary.barcode == code)
+    result = await db.execute(stmt)
+    food = result.scalar_one_or_none()
+
+    if not food:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Barcode not found in database",
+        )
+
+    return {
+        "id": str(food.id),
+        "name": food.name,
+        "brand": food.brand,
+        "calories_per_100g": float(food.calories_per_100g),
+        "protein_per_100g": float(food.protein_per_100g),
+        "carbs_per_100g": float(food.carbs_per_100g),
+        "fat_per_100g": float(food.fat_per_100g),
+        "barcode": food.barcode,
+    }

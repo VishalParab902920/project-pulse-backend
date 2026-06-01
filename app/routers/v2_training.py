@@ -27,6 +27,51 @@ from app.services.training import training_service
 
 logger = logging.getLogger(__name__)
 
+# Estimated kcal burned per completed strength training set
+STRENGTH_BURN_PER_SET = 12.5
+
+
+async def _upsert_daily_calories_burned(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    target_date: date,
+    calories_to_add: float,
+) -> None:
+    """
+    Atomic UPSERT on daily_health_summaries.active_calories_burned.
+    Increments if row exists, creates if missing.
+    """
+    from sqlalchemy import and_, text
+    from app.models.telemetry import DailyHealthSummary
+
+    stmt = select(DailyHealthSummary).where(
+        and_(
+            DailyHealthSummary.user_id == user_id,
+            DailyHealthSummary.date == target_date,
+        )
+    )
+    result = await db.execute(stmt)
+    summary = result.scalar_one_or_none()
+
+    if summary:
+        current = float(summary.active_calories_burned or 0)
+        summary.active_calories_burned = current + calories_to_add
+    else:
+        new_summary = DailyHealthSummary(
+            user_id=user_id,
+            date=target_date,
+            active_calories_burned=calories_to_add,
+            resting_heart_rate=None,
+            total_daily_steps=None,
+            sleep_duration_seconds=None,
+        )
+        db.add(new_summary)
+
+    await db.flush()
+    logger.info(
+        f"[TRAINING] Burned {calories_to_add:.1f} kcal for user {str(user_id)[:8]} on {target_date}"
+    )
+
 router = APIRouter(
     prefix="/api/v2/training",
     tags=["Training"],
@@ -189,6 +234,30 @@ async def complete_workout_session(
             detail="Workout session not found or not owned by user",
         )
 
+    # Calculate calories burned from completed sets
+    from app.models.training import WorkoutSet, WorkoutSession
+    from sqlalchemy import and_
+
+    sets_stmt = select(WorkoutSet).where(
+        and_(
+            WorkoutSet.session_id == session_id,
+            WorkoutSet.completed == True,
+        )
+    )
+    sets_result = await db.execute(sets_stmt)
+    completed_sets_count = len(sets_result.scalars().all())
+
+    if completed_sets_count > 0:
+        estimated_calories = completed_sets_count * STRENGTH_BURN_PER_SET
+        # Get the session's start date
+        session_stmt = select(WorkoutSession).where(WorkoutSession.id == session_id)
+        session_result = await db.execute(session_stmt)
+        session_obj = session_result.scalar_one_or_none()
+        if session_obj:
+            session_date = session_obj.started_at.date()
+            await _upsert_daily_calories_burned(db, current_user.id, session_date, estimated_calories)
+            await db.commit()
+
     return result
 
 
@@ -341,6 +410,13 @@ async def quick_log_session(
     session.total_volume_kg = total_volume
     await db.commit()
 
+    # Calculate and upsert estimated calories burned
+    total_sets = sum(len(ex.sets) for ex in payload.exercises)
+    estimated_calories = total_sets * STRENGTH_BURN_PER_SET
+    logged_date = logged_at.date()
+    await _upsert_daily_calories_burned(db, user_id, logged_date, estimated_calories)
+    await db.commit()
+
     return {
         "id": str(session_id),
         "name": payload.name,
@@ -455,6 +531,174 @@ async def list_templates(
         })
 
     return response
+
+
+class TemplateUpdateRequest(BaseModel):
+    """Payload for updating a workout template."""
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = None
+    exercises: list[TemplateExerciseInput] = Field(default_factory=list)
+
+
+@router.put("/templates/{template_id}")
+async def update_template(
+    template_id: uuid.UUID,
+    payload: TemplateUpdateRequest,
+    current_user: ProfileResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Updates an existing workout template."""
+    import json
+    from sqlalchemy import and_
+
+    stmt = select(WorkoutTemplate).where(
+        and_(WorkoutTemplate.id == template_id, WorkoutTemplate.user_id == current_user.id)
+    )
+    result = await db.execute(stmt)
+    template = result.scalar_one_or_none()
+
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    exercise_config = [
+        {
+            "exercise_id": str(e.exercise_id),
+            "target_sets": e.target_sets,
+            "default_rest_seconds": e.default_rest_seconds,
+        }
+        for e in payload.exercises
+    ]
+
+    template.name = payload.name
+    template.description = json.dumps({
+        "text": payload.description or "",
+        "exercises": exercise_config,
+    })
+
+    await db.commit()
+    await db.refresh(template)
+
+    return {
+        "id": str(template.id),
+        "name": template.name,
+        "description": payload.description,
+        "exercises": exercise_config,
+        "created_at": template.created_at.isoformat() if template.created_at else None,
+    }
+
+
+@router.delete("/templates/{template_id}", status_code=204)
+async def delete_template(
+    template_id: uuid.UUID,
+    current_user: ProfileResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Deletes a workout template."""
+    from sqlalchemy import and_, delete as sql_delete
+
+    stmt = select(WorkoutTemplate).where(
+        and_(WorkoutTemplate.id == template_id, WorkoutTemplate.user_id == current_user.id)
+    )
+    result = await db.execute(stmt)
+    template = result.scalar_one_or_none()
+
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+
+    await db.execute(sql_delete(WorkoutTemplate).where(WorkoutTemplate.id == template_id))
+    await db.commit()
+
+
+class UpdateSetInput(BaseModel):
+    """Single set update in a session edit payload."""
+    id: uuid.UUID
+    weight_kg: float | None = None
+    reps: int | None = None
+    rpe: float | None = None
+
+
+class UpdateSessionRequest(BaseModel):
+    """Payload for editing a completed workout session."""
+    name: str | None = None
+    sets: list[UpdateSetInput] = Field(default_factory=list)
+
+
+@router.put("/sessions/{session_id}")
+async def update_workout_session(
+    session_id: uuid.UUID,
+    payload: UpdateSessionRequest,
+    current_user: ProfileResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Updates a workout session's name and/or individual set values."""
+    from sqlalchemy import and_
+    from app.models.training import WorkoutSession, WorkoutSet
+
+    stmt = select(WorkoutSession).where(
+        and_(WorkoutSession.id == session_id, WorkoutSession.user_id == current_user.id)
+    )
+    result = await db.execute(stmt)
+    session = result.scalar_one_or_none()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if payload.name:
+        session.name = payload.name
+
+    # Update individual sets
+    for set_update in payload.sets:
+        set_stmt = select(WorkoutSet).where(
+            and_(WorkoutSet.id == set_update.id, WorkoutSet.session_id == session_id)
+        )
+        set_result = await db.execute(set_stmt)
+        ws = set_result.scalar_one_or_none()
+        if ws:
+            if set_update.weight_kg is not None:
+                ws.weight_kg = set_update.weight_kg
+            if set_update.reps is not None:
+                ws.reps = set_update.reps
+            if set_update.rpe is not None:
+                ws.rpe = set_update.rpe
+
+    # Recalculate total volume
+    all_sets_stmt = select(WorkoutSet).where(WorkoutSet.session_id == session_id)
+    all_sets_result = await db.execute(all_sets_stmt)
+    all_sets = all_sets_result.scalars().all()
+    total_volume = sum(
+        (float(s.weight_kg or 0) * (s.reps or 0)) for s in all_sets if s.completed
+    )
+    session.total_volume_kg = total_volume
+
+    await db.commit()
+
+    return {"status": "updated", "total_volume_kg": round(total_volume, 1)}
+
+
+@router.delete("/sessions/{session_id}", status_code=204)
+async def delete_workout_session(
+    session_id: uuid.UUID,
+    current_user: ProfileResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Deletes a workout session and its sets."""
+    from sqlalchemy import and_, delete as sql_delete
+    from app.models.training import WorkoutSession, WorkoutSet
+
+    stmt = select(WorkoutSession).where(
+        and_(WorkoutSession.id == session_id, WorkoutSession.user_id == current_user.id)
+    )
+    result = await db.execute(stmt)
+    session = result.scalar_one_or_none()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    await db.execute(sql_delete(WorkoutSet).where(WorkoutSet.session_id == session_id))
+    await db.execute(sql_delete(WorkoutSession).where(WorkoutSession.id == session_id))
+    await db.commit()
+
+    logger.info(f"[TRAINING] Deleted session {str(session_id)[:8]} for user {str(current_user.id)[:8]}")
 
 
 @router.get("/exercises/search")

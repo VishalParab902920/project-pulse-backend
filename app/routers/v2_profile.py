@@ -1,15 +1,15 @@
 """
 Project Pulse V2 — Profile & Biometrics Router
-Endpoints for user biometric onboarding, retrieval, and BYOK key management.
+Endpoints for user biometric onboarding, retrieval, weight logging, and BYOK key management.
 
 Prefix: /api/v2/profile
 """
 
 import logging
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -76,6 +76,13 @@ class BYOKUpdate(BaseModel):
     """Schema for saving a user's BYOK Gemini API key."""
 
     gemini_api_key: str = Field(min_length=10, max_length=200)
+
+
+class WeightLogRequest(BaseModel):
+    """Schema for logging a weight entry."""
+
+    weight_kg: float = Field(gt=0, le=500)
+    logged_at: date
 
 
 # =============================================================
@@ -193,6 +200,97 @@ async def get_biometrics(
 
 
 # =============================================================
+# Weight Logging Endpoints
+# =============================================================
+
+
+@router.post("/biometrics/weight", status_code=status.HTTP_201_CREATED)
+async def log_weight(
+    payload: WeightLogRequest,
+    current_user: ProfileResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Log a weight entry. Creates a versioned biometric row preserving existing targets."""
+    user_id = current_user.id
+
+    # Get latest biometrics
+    stmt = (
+        select(UserBiometric)
+        .where(UserBiometric.user_id == user_id)
+        .order_by(UserBiometric.created_at.desc())
+        .limit(1)
+    )
+    result = await db.execute(stmt)
+    latest = result.scalar_one_or_none()
+
+    if not latest:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No biometrics found. Complete onboarding first.",
+        )
+
+    # Create new versioned row with weight update
+    new_bio = UserBiometric(
+        id=uuid.uuid4(),
+        user_id=user_id,
+        dob=latest.dob,
+        gender=latest.gender,
+        height_cm=latest.height_cm,
+        weight_kg=payload.weight_kg,
+        activity_level=latest.activity_level,
+        fitness_goal=latest.fitness_goal,
+        calculated_bmr=latest.calculated_bmr,
+        calculated_tdee=latest.calculated_tdee,
+        target_calories=latest.target_calories,
+        target_protein_g=latest.target_protein_g,
+        target_carbs_g=latest.target_carbs_g,
+        target_fat_g=latest.target_fat_g,
+    )
+    db.add(new_bio)
+    await db.commit()
+    await db.refresh(new_bio)
+
+    logger.info(f"[PROFILE] Weight logged: {payload.weight_kg}kg for user {str(user_id)[:8]}")
+
+    return {
+        "status": "logged",
+        "weight_kg": payload.weight_kg,
+        "logged_at": payload.logged_at.isoformat(),
+    }
+
+
+@router.get("/biometrics/weight-history")
+async def get_weight_history(
+    days: int = Query(default=30, ge=7, le=365),
+    current_user: ProfileResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Returns weight entries for the last N days."""
+    user_id = current_user.id
+    cutoff = date.today() - timedelta(days=days)
+
+    stmt = (
+        select(UserBiometric)
+        .where(
+            and_(
+                UserBiometric.user_id == user_id,
+                UserBiometric.weight_kg.isnot(None),
+                UserBiometric.created_at >= datetime.combine(cutoff, datetime.min.time()),
+            )
+        )
+        .order_by(UserBiometric.created_at.asc())
+    )
+    result = await db.execute(stmt)
+    rows = result.scalars().all()
+
+    return [
+        {"date": row.created_at.date().isoformat(), "weight_kg": float(row.weight_kg)}
+        for row in rows
+        if row.weight_kg
+    ]
+
+
+# =============================================================
 # BYOK Endpoint
 # =============================================================
 
@@ -270,3 +368,29 @@ async def save_byok_key(
     logger.info(f"[PROFILE] BYOK key encrypted and saved for user {str(user_id)[:8]}")
 
     return {"status": "saved", "message": "API key encrypted and stored securely."}
+
+
+@router.delete("/byok")
+async def delete_byok_key(
+    current_user: ProfileResponse = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Clears the user's BYOK Gemini API key, reverting to server-side default.
+    Sets encrypted_byok and byok_iv to NULL.
+    """
+    user_id = current_user.id
+    logger.info(f"[PROFILE] Clearing BYOK key for user {str(user_id)[:8]}")
+
+    await db.execute(
+        update(Profile)
+        .where(Profile.id == user_id)
+        .values(
+            encrypted_byok=None,
+            byok_iv=None,
+            updated_at=func.now(),
+        )
+    )
+    await db.commit()
+
+    return {"status": "success", "message": "BYOK Key deleted. Reverted to server-side default."}

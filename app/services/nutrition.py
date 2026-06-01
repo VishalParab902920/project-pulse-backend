@@ -24,6 +24,7 @@ from app.models.nutrition import (
     FoodDictionary,
     NutritionLog,
     Recipe,
+    RecipeIngredient,
 )
 from app.schemas.nutrition import (
     DailyNutritionSummaryResponse,
@@ -178,7 +179,7 @@ class NutritionService:
             select(NutritionLog)
             .options(
                 joinedload(NutritionLog.food),
-                joinedload(NutritionLog.recipe).joinedload(Recipe.ingredients),
+                joinedload(NutritionLog.recipe).joinedload(Recipe.ingredients).joinedload(RecipeIngredient.food),
             )
             .where(NutritionLog.id == nutrition_log.id)
         )
@@ -226,7 +227,7 @@ class NutritionService:
             select(NutritionLog)
             .options(
                 joinedload(NutritionLog.food),
-                joinedload(NutritionLog.recipe).joinedload(Recipe.ingredients),
+                joinedload(NutritionLog.recipe).joinedload(Recipe.ingredients).joinedload(RecipeIngredient.food),
             )
             .where(
                 and_(

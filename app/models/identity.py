@@ -93,6 +93,7 @@ class UserBiometric(Base):
     target_protein_g: Mapped[int | None] = mapped_column(Integer, nullable=True)
     target_carbs_g: Mapped[int | None] = mapped_column(Integer, nullable=True)
     target_fat_g: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    weight_kg: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         nullable=False, server_default="now()"
     )
