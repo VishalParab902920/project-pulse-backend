@@ -3,6 +3,7 @@ Project Pulse V2 — Async Database Connection
 SQLAlchemy 2.0 async engine and session management for Supabase PostgreSQL 15+.
 
 Uses asyncpg driver with connection pooling optimized for production workloads.
+Configured for Supabase PgBouncer transaction-pool mode (port 6543).
 """
 
 from sqlalchemy import URL
@@ -26,8 +27,8 @@ database_url = URL.create(
     database=settings.supabase_db_name,
 )
 
-# Async engine with production-grade pool settings
-# statement_cache_size=0 disables asyncpg prepared statement caching,
+# Async engine with production-grade pool settings.
+# prepared_statement_cache_size=0 forces asyncpg to execute queries as raw SQL text,
 # required for Supabase PgBouncer transaction-pool mode compatibility.
 engine = create_async_engine(
     database_url,
@@ -36,7 +37,6 @@ engine = create_async_engine(
     pool_pre_ping=True,
     echo=settings.debug,
     connect_args={
-        "statement_cache_size": 0,
         "prepared_statement_cache_size": 0,
     },
 )

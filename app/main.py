@@ -3,12 +3,13 @@ Kayan — FastAPI Backend
 Intelligence & Orchestration Server (V2)
 """
 
+import json
 import logging
+import os
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 
@@ -25,54 +26,43 @@ app = FastAPI(
 )
 
 
-# Custom middleware to ensure CORS headers are present on ALL responses,
-# including 4xx/5xx error responses that FastAPI's CORSMiddleware may miss
-# when exceptions are raised before the middleware can process the response.
-ALLOWED_ORIGINS = {"http://localhost:3000", "http://127.0.0.1:3000"}
+# ---------------------------------------------------------------------------
+# CORS — Parse allowed origins from environment (JSON string list) or fallback
+# ---------------------------------------------------------------------------
+origins_env = os.getenv("ALLOWED_ORIGINS")
+if origins_env:
+    try:
+        origins = json.loads(origins_env)
+    except Exception:
+        origins = ["http://localhost:3000"]
+else:
+    # Fallback: use settings or sensible defaults
+    origins = settings.allowed_origins if settings.allowed_origins else ["http://localhost:3000"]
 
-
-class CORSErrorMiddleware(BaseHTTPMiddleware):
-    """Ensures CORS headers are always present, even on error responses."""
-
-    async def dispatch(self, request: Request, call_next) -> Response:
-        origin = request.headers.get("origin", "")
-
-        # Handle preflight OPTIONS directly
-        if request.method == "OPTIONS" and origin in ALLOWED_ORIGINS:
-            return Response(
-                status_code=200,
-                headers={
-                    "Access-Control-Allow-Origin": origin,
-                    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
-                    "Access-Control-Allow-Headers": "*",
-                    "Access-Control-Allow-Credentials": "true",
-                    "Access-Control-Max-Age": "3600",
-                },
-            )
-
-        response = await call_next(request)
-
-        # Inject CORS headers on every response if origin matches
-        if origin in ALLOWED_ORIGINS:
-            response.headers["Access-Control-Allow-Origin"] = origin
-            response.headers["Access-Control-Allow-Credentials"] = "true"
-            response.headers["Access-Control-Expose-Headers"] = "*"
-
-        return response
-
-
-# Add our custom CORS middleware FIRST (outermost = processes last on request, first on response)
-app.add_middleware(CORSErrorMiddleware)
-
-# Standard CORS middleware as a fallback for well-behaved responses
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+    allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"],
 )
+
+
+# ---------------------------------------------------------------------------
+# Global Exception Handler — ensures CORS headers are present on 500 errors
+# ---------------------------------------------------------------------------
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logging.error(f"[GLOBAL EXCEPTION] Unhandled error: {str(exc)}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "status": "error",
+            "message": "Internal Server Error",
+            "detail": str(exc),
+        },
+    )
+
 
 # --- V2 Domain Routers ---
 from app.routers.v2_health import router as health_router
