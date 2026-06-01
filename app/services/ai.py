@@ -1,5 +1,5 @@
 """
-Project Pulse V2 — AI Processing Pipeline & Semantic Memory Engine
+Kayan V2 — AI Processing Pipeline & Semantic Memory Engine
 
 Implements:
     - AIService: Two-pass multimodal audio pipeline (transcription → structured JSON)

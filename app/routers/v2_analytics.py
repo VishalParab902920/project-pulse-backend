@@ -1,5 +1,5 @@
 """
-Project Pulse V2 — Daily Coaching Analytics Router
+Kayan V2 — Daily Coaching Analytics Router
 Provides AI-generated daily coaching summaries.
 
 Prefix: /api/v2/analytics
@@ -186,7 +186,7 @@ async def _generate_coaching(
         return _fallback_coaching(metrics_summary)
 
     system_prompt = (
-        "You are the Project Pulse AI Personal Trainer. "
+        "You are the Kayan AI Elite Bio-Coach. "
         "Generate a SHORT, motivating daily coaching message (3-5 sentences max). "
         "Be specific about the user's data. Use a warm, encouraging tone. "
         "If they haven't logged much data yet, encourage them to track. "

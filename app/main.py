@@ -1,5 +1,5 @@
 """
-Project Pulse — FastAPI Backend
+Kayan — FastAPI Backend
 Intelligence & Orchestration Server (V2)
 """
 
@@ -19,8 +19,8 @@ logging.basicConfig(
 )
 
 app = FastAPI(
-    title="Project Pulse API",
-    description="AI-Native Fitness Concierge — Intelligence & Orchestration Server",
+    title="Kayan API",
+    description="AI-Native Elite Bio-Concierge — Intelligence & Orchestration Server",
     version="2.0.0",
 )
 
@@ -101,7 +101,7 @@ async def on_startup():
     from app.services.scheduler import start_hourly_timezone_scheduler
 
     logger = logging.getLogger(__name__)
-    logger.info("Project Pulse V2 API starting up...")
+    logger.info("Kayan V2 API starting up...")
 
     # Launch the background timezone aggregation scheduler
     asyncio.create_task(start_hourly_timezone_scheduler())
@@ -109,4 +109,4 @@ async def on_startup():
 
 @app.get("/")
 async def root():
-    return {"status": "ok", "service": "Project Pulse API", "version": "2.0.0"}
+    return {"status": "ok", "service": "Kayan API", "version": "2.0.0"}

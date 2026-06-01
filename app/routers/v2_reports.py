@@ -1,5 +1,5 @@
 """
-Project Pulse V2 — Weekly AI Synthesis Report Router
+Kayan V2 — Weekly AI Synthesis Report Router
 Generates and caches AI-powered weekly fitness analysis reports.
 
 Prefix: /api/v2/analytics
@@ -303,7 +303,7 @@ async def _call_gemini_for_report(client, metrics_summary: str) -> str:
         return _generate_fallback_report(metrics_summary)
 
     system_prompt = (
-        "You are the World-Class Project Pulse AI Concierge. "
+        "You are the World-Class Kayan AI Elite Bio-Coach. "
         "Analyze the user's weekly metrics, call out clear progressive overload wins in the gym, "
         "evaluate their metabolic compliance (calories/macros vs target goals), "
         "identify resting heart rate sleep quality correlations, "
@@ -335,7 +335,7 @@ async def _call_gemini_for_report(client, metrics_summary: str) -> str:
 def _generate_fallback_report(metrics_summary: str) -> str:
     """Generates a basic report when Gemini is unavailable."""
     return (
-        "# Weekly Pulse Report\n\n"
+        "# Weekly Kayan Report\n\n"
         "## Summary\n\n"
         "Your AI report could not be generated at this time. "
         "Here are your raw metrics for the week:\n\n"
