@@ -54,6 +54,7 @@ class Food(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("profiles.id", ondelete="SET NULL"), nullable=True
     )
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=datetime.utcnow, nullable=False
     )
@@ -70,6 +71,7 @@ class Food(Base):
         CheckConstraint("base_unit IN ('g', 'ml')", name="ck_foods_base_unit"),
         Index("idx_foods_barcode", "barcode", unique=True, postgresql_where=Column("barcode").isnot(None)),
         Index("idx_foods_verified_search", "is_verified", "name", "brand"),
+        Index("idx_foods_archived", "is_archived"),
     )
 
 

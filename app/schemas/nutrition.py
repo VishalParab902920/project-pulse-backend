@@ -205,6 +205,7 @@ class FoodResponse(BaseSchema):
     fat_per_100: Decimal
     is_custom: bool
     is_verified: bool
+    is_archived: bool = False
     created_by: Optional[uuid.UUID] = None
     measures: List[FoodMeasureResponse] = Field(default_factory=list)
 
