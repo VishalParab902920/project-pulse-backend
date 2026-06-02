@@ -282,10 +282,10 @@ async def _handle_nutrition_entry(
     for item in items:
         serving_g = item.get("serving_size_g", 100)
         ai_macros = {
-            "calories_per_100g": item.get("calories", 0) / max(serving_g, 1) * 100,
-            "protein_per_100g": item.get("protein_g", 0) / max(serving_g, 1) * 100,
-            "carbs_per_100g": item.get("carbs_g", 0) / max(serving_g, 1) * 100,
-            "fat_per_100g": item.get("fat_g", 0) / max(serving_g, 1) * 100,
+            "calories_per_100": item.get("calories", 0) / max(serving_g, 1) * 100,
+            "protein_per_100": item.get("protein_g", 0) / max(serving_g, 1) * 100,
+            "carbs_per_100": item.get("carbs_g", 0) / max(serving_g, 1) * 100,
+            "fat_per_100": item.get("fat_g", 0) / max(serving_g, 1) * 100,
         }
 
         food = await nutrition_service.resolve_food_item(
@@ -305,10 +305,10 @@ async def _handle_nutrition_entry(
         logged_items.append({
             "name": food.name,
             "serving_size_g": serving_g,
-            "calories": round(float(food.calories_per_100g) * serving_g / 100),
-            "protein": round(float(food.protein_per_100g) * serving_g / 100),
-            "carbs": round(float(food.carbs_per_100g) * serving_g / 100),
-            "fat": round(float(food.fat_per_100g) * serving_g / 100),
+            "calories": round(float(food.calories_per_100) * serving_g / 100),
+            "protein": round(float(food.protein_per_100) * serving_g / 100),
+            "carbs": round(float(food.carbs_per_100) * serving_g / 100),
+            "fat": round(float(food.fat_per_100) * serving_g / 100),
         })
 
     # Store semantic memory (non-fatal)

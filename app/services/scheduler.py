@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session
 from app.models.identity import Profile
-from app.models.nutrition import DailyNutritionSummary, FoodDictionary, NutritionLog
+from app.models.nutrition import DailyNutritionSummary, NutritionLog
 from app.models.telemetry import DailyHealthSummary, HealthMetric
 
 logger = logging.getLogger(__name__)
@@ -163,16 +163,15 @@ async def aggregate_user_daily_nutrition(
     day_start = datetime.combine(target_date, time.min)
     day_end = datetime.combine(target_date, time.max)
 
-    # Aggregate macros from nutrition_logs joined with food_dictionary
+    # Aggregate macros from nutrition_logs_v2 (pre-calculated fields)
     agg_result = await db.execute(
         select(
-            func.sum(FoodDictionary.calories_per_100g * NutritionLog.serving_size_g / 100).label("cal"),
-            func.sum(FoodDictionary.protein_per_100g * NutritionLog.serving_size_g / 100).label("pro"),
-            func.sum(FoodDictionary.carbs_per_100g * NutritionLog.serving_size_g / 100).label("carb"),
-            func.sum(FoodDictionary.fat_per_100g * NutritionLog.serving_size_g / 100).label("fat"),
+            func.sum(NutritionLog.calculated_calories).label("cal"),
+            func.sum(NutritionLog.calculated_protein).label("pro"),
+            func.sum(NutritionLog.calculated_carbs).label("carb"),
+            func.sum(NutritionLog.calculated_fat).label("fat"),
         )
         .select_from(NutritionLog)
-        .join(FoodDictionary, NutritionLog.food_id == FoodDictionary.id, isouter=True)
         .where(
             and_(
                 NutritionLog.user_id == user_id,

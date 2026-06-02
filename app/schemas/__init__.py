@@ -1,5 +1,5 @@
 """
-Project Pulse V2 — Pydantic Schema Registry
+Project Pulse V2.5 — Pydantic Schema Registry
 """
 
 from app.schemas.base import BaseSchema
@@ -19,9 +19,12 @@ from app.schemas.identity import (
 )
 from app.schemas.nutrition import (
     DailyNutritionSummaryResponse,
-    FoodDictionaryCreate,
-    FoodDictionaryResponse,
-    FoodDictionaryUpdate,
+    DiaryLogCreate,
+    DiaryLogResponse,
+    FoodCreate,
+    FoodMeasureCreate,
+    FoodMeasureResponse,
+    FoodResponse,
     NutritionLogCreate,
     NutritionLogResponse,
     NutritionLogUpdate,
@@ -54,7 +57,6 @@ from app.schemas.telemetry import (
 
 __all__ = [
     "BaseSchema",
-    # Identity
     "ProfileBase",
     "ProfileCreate",
     "ProfileResponse",
@@ -67,10 +69,12 @@ __all__ = [
     "UserIntegrationCreate",
     "UserIntegrationResponse",
     "UserIntegrationUpdate",
-    # Nutrition
-    "FoodDictionaryCreate",
-    "FoodDictionaryResponse",
-    "FoodDictionaryUpdate",
+    "FoodCreate",
+    "FoodResponse",
+    "FoodMeasureCreate",
+    "FoodMeasureResponse",
+    "DiaryLogCreate",
+    "DiaryLogResponse",
     "NutritionLogCreate",
     "NutritionLogResponse",
     "NutritionLogUpdate",
@@ -80,7 +84,6 @@ __all__ = [
     "RecipeResponse",
     "RecipeUpdate",
     "DailyNutritionSummaryResponse",
-    # Training
     "ExerciseCreate",
     "ExerciseResponse",
     "ExerciseUpdate",
@@ -93,7 +96,6 @@ __all__ = [
     "WorkoutSetCreate",
     "WorkoutSetResponse",
     "WorkoutSetUpdate",
-    # Telemetry
     "HealthMetricCreate",
     "HealthMetricBatchCreate",
     "HealthMetricResponse",

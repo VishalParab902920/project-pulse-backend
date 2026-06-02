@@ -1,5 +1,5 @@
 """
-Project Pulse V2 — Service Layer Registry
+Project Pulse V2.5 — Service Layer Registry
 """
 
 from app.services.security import SecurityService, security_service

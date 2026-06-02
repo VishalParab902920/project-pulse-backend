@@ -12,6 +12,14 @@ FastAPI-based Intelligence & Orchestration Server for Project Pulse.
 
 ## API Endpoints
 
+### V2 Endpoints (Current)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET, HEAD | `/api/v2/health` | Service health check |
+
+### V1 Endpoints (Legacy)
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | GET | `/api/v1/health` | System health check (DB + AI) |
@@ -61,3 +69,66 @@ See `.env.example` for the full list. Key variables:
 - `GEMINI_API_KEY` — Google AI Studio key
 - `ENCRYPTION_KEY` — Fernet key for BYOK encryption
 - `ALLOWED_ORIGINS` — CORS whitelist (your frontend URL)
+
+## Database Schema (V2.5)
+
+### Nutrition Models
+
+| Table | Description |
+|-------|-------------|
+| `foods` | Normalized food reference table (replaces `food_dictionary`) |
+| `food_measures` | Measurement units for food items (e.g., "1 cup", "100g") |
+| `nutrition_logs_v2` | User food log with pre-calculated nutrition values |
+
+#### Foods Table
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `name` | String(255) | Food name |
+| `brand` | String(100) | Brand (optional) |
+| `barcode` | String(100) | UPC/EAN barcode (optional, unique) |
+| `base_unit` | String(10) | Base unit ("g" or "ml"), default "g" |
+| `calories_per_100` | Numeric(10,2) | Calories per 100g/ml |
+| `protein_per_100` | Numeric(10,2) | Protein per 100g/ml |
+| `carbs_per_100` | Numeric(10,2) | Carbs per 100g/ml |
+| `fat_per_100` | Numeric(10,2) | Fat per 100g/ml |
+| `is_custom` | Boolean | User-created custom food |
+| `created_by` | UUID | Profile reference |
+| `created_at` | DateTime | Creation timestamp |
+
+#### FoodMeasures Table
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `food_id` | UUID | Foreign key to `foods` |
+| `measure_name` | String(50) | e.g., "cup", "tbsp", "piece" |
+| `conversion_factor` | Numeric(10,4) | Multiplier to base unit |
+| `is_default` | Boolean | Default measurement for this food |
+
+#### NutritionLogsV2 Table
+
+| Column | Type | Description |
+|--------|------|-------------|
+| `id` | UUID | Primary key |
+| `user_id` | UUID | Foreign key to `profiles` (NOT NULL) |
+| `logged_at` | DateTime | Log timestamp |
+| `meal_type` | String(50) | breakfast, lunch, dinner, snack |
+| `food_id` | UUID | Foreign key to `foods` (NOT NULL) |
+| `measure_id` | UUID | Foreign key to `food_measures` |
+| `quantity` | Numeric(10,2) | Number of measures |
+| `calculated_qty_base` | Numeric(10,2) | Pre-calculated base unit quantity |
+| `calculated_calories` | Numeric(10,2) | Pre-calculated calories |
+| `calculated_protein` | Numeric(10,2) | Pre-calculated protein |
+| `calculated_carbs` | Numeric(10,2) | Pre-calculated carbs |
+| `calculated_fat` | Numeric(10,2) | Pre-calculated fat |
+| `created_at` | DateTime | Creation timestamp |
+
+### Breaking Changes (V2 → V2.5)
+
+- `food_dictionary` table renamed to `foods`
+- `nutrition_logs` table renamed to `nutrition_logs_v2`
+- Removed `recipes`, `recipe_ingredients`, `daily_nutrition_summaries` tables
+- `food_id` and `user_id` in nutrition_logs now NOT NULL (previously nullable)
+- Nutrition values now pre-calculated and denormalized at log time

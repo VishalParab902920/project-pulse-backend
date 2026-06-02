@@ -1,12 +1,12 @@
 """
-Project Pulse V2 — ORM Model Registry
-Imports all models to ensure they are registered with Base.metadata.
+Project Pulse V2.5 — ORM Model Registry
 """
 
 from app.models.identity import Profile, UserBiometric, UserIntegration
 from app.models.nutrition import (
     DailyNutritionSummary,
-    FoodDictionary,
+    Food,
+    FoodMeasure,
     NutritionLog,
     Recipe,
     RecipeIngredient,
@@ -17,28 +17,23 @@ from app.models.ai import ChatMessage, Conversation, SemanticMemory
 from app.models.reports import AIReport
 
 __all__ = [
-    # Domain 1: Identity & Security
     "Profile",
     "UserBiometric",
     "UserIntegration",
-    # Domain 2: Nutrition
-    "FoodDictionary",
+    "Food",
+    "FoodMeasure",
     "Recipe",
     "RecipeIngredient",
     "NutritionLog",
     "DailyNutritionSummary",
-    # Domain 3: Training
     "Exercise",
     "WorkoutTemplate",
     "WorkoutSession",
     "WorkoutSet",
-    # Domain 4: Telemetry
     "HealthMetric",
     "DailyHealthSummary",
-    # Domain 5: AI & Memory
     "Conversation",
     "ChatMessage",
     "SemanticMemory",
-    # Reports
     "AIReport",
 ]
