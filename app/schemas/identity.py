@@ -23,6 +23,7 @@ class ProfileBase(BaseSchema):
     """Shared profile fields for create/update operations."""
 
     timezone: str = Field(default="UTC", max_length=100)
+    full_name: str | None = Field(default=None, max_length=200)
 
 
 class ProfileCreate(ProfileBase):
@@ -35,6 +36,7 @@ class ProfileUpdate(ProfileBase):
     """Schema for updating profile settings."""
 
     timezone: str | None = None
+    full_name: str | None = Field(default=None, max_length=200)
 
 
 class ProfileResponse(ProfileBase):
@@ -44,6 +46,8 @@ class ProfileResponse(ProfileBase):
 
     id: uuid.UUID
     timezone: str
+    full_name: str | None = None
+    avatar_url: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -59,6 +63,7 @@ class UserBiometricBase(BaseSchema):
     dob: date | None = None
     gender: str | None = Field(default=None, max_length=50)
     height_cm: float | None = None
+    body_fat_pct: float | None = None
     activity_level: str | None = Field(default=None, max_length=50)
     fitness_goal: str | None = Field(default=None, max_length=50)
     calculated_bmr: float | None = None

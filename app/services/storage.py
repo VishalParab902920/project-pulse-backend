@@ -18,7 +18,7 @@ supabase = create_client(settings.supabase_url, settings.supabase_key)
 BUCKET_NAME = "entry-photos"
 
 
-async def upload_image(image_bytes: bytes, mime_type: str, user_id: str) -> str:
+async def upload_image(image_bytes: bytes, mime_type: str, user_id: str, bucket_name: str = BUCKET_NAME) -> str:
     """
     Upload an image to Supabase Storage and return the public URL.
 
@@ -36,14 +36,14 @@ async def upload_image(image_bytes: bytes, mime_type: str, user_id: str) -> str:
 
     try:
         # Upload to Supabase Storage
-        supabase.storage.from_(BUCKET_NAME).upload(
+        supabase.storage.from_(bucket_name).upload(
             path=filename,
             file=image_bytes,
             file_options={"content-type": mime_type},
         )
 
         # Get the public URL
-        public_url = supabase.storage.from_(BUCKET_NAME).get_public_url(filename)
+        public_url = supabase.storage.from_(bucket_name).get_public_url(filename)
         logger.info(f"[STORAGE] Uploaded: {filename} -> {public_url}")
         return public_url
 

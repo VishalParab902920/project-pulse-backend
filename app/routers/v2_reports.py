@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import async_session, get_db
+from app.models.identity import UserBiometric
 from app.models.nutrition import DailyNutritionSummary
 from app.models.reports import AIReport
 from app.models.telemetry import DailyHealthSummary
@@ -192,8 +193,28 @@ async def _generate_weekly_report(
                 logger.warning(f"[REPORT] No AI client available, using fallback: {e}")
                 client = None
 
+            # Fetch user allergies for clinical-safety constraint injection (non-fatal)
+            user_allergies: list[str] = []
+            try:
+                bio_stmt = (
+                    select(UserBiometric)
+                    .where(UserBiometric.user_id == user_id)
+                    .order_by(UserBiometric.created_at.desc())
+                    .limit(1)
+                )
+                bio_result = await db.execute(bio_stmt)
+                biometric = bio_result.scalar_one_or_none()
+                if biometric and biometric.allergies:
+                    user_allergies = [
+                        a.strip().lower() for a in biometric.allergies if a.strip()
+                    ]
+            except Exception as e:
+                logger.warning(f"[REPORT] Allergen fetch failed (non-fatal): {e}")
+
             # 4. Generate report via Gemini
-            report_markdown = await _call_gemini_for_report(client, metrics_summary)
+            report_markdown = await _call_gemini_for_report(
+                client, metrics_summary, user_allergies=user_allergies
+            )
 
             # 5. Save to ai_reports
             new_report = AIReport(
@@ -285,7 +306,11 @@ def _build_metrics_prompt(
     return "\n".join(lines)
 
 
-async def _call_gemini_for_report(client, metrics_summary: str) -> str:
+async def _call_gemini_for_report(
+    client,
+    metrics_summary: str,
+    user_allergies: list[str] | None = None,
+) -> str:
     """
     Calls Gemini to generate the weekly coaching report.
 
@@ -294,16 +319,25 @@ async def _call_gemini_for_report(client, metrics_summary: str) -> str:
                 produced by AIService.resolve_client. If None, falls back to a
                 static report.
         metrics_summary: The structured metrics prompt.
+        user_allergies: Optional list of user allergen strings. When provided
+                        and non-empty, the clinical-safety constraint block is
+                        prepended to the system prompt so no allergen-containing
+                        foods are ever recommended in the coaching report.
     """
 
     import asyncio
     from google.genai import types
+    from app.services.ai import ai_service as _ai_svc
 
     if client is None:
         return _generate_fallback_report(metrics_summary)
 
+    # Build the allergen constraint prefix (empty string if no allergies)
+    allergen_prefix = _ai_svc.build_allergen_system_prefix(user_allergies or [])
+
     system_prompt = (
-        "You are the World-Class Kayan AI Elite Bio-Coach. "
+        allergen_prefix
+        + "You are the World-Class Kayan AI Elite Bio-Coach. "
         "Analyze the user's weekly metrics, call out clear progressive overload wins in the gym, "
         "evaluate their metabolic compliance (calories/macros vs target goals), "
         "identify resting heart rate sleep quality correlations, "

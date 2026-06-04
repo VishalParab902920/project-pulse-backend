@@ -9,12 +9,13 @@ import logging
 import uuid
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
+from app.models.identity import UserBiometric
 from app.models.nutrition import (
     DailyNutritionSummary,
     Food,
@@ -67,12 +68,73 @@ async def create_diary_entry(
     payload: DiaryLogCreate,
     current_user: ProfileResponse = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
+    x_allergen_override: str | None = Header(
+        default=None,
+        alias="X-Allergen-Override",
+        description="Set to 'true' to bypass allergen safety block and force-log the entry.",
+    ),
 ):
-    """Create a diary log entry with pre-calculated macros."""
+    """Create a diary log entry with pre-calculated macros.
+
+    Before writing the log, an allergen interceptor cross-references the food's
+    `allergens` array against the user's `user_biometrics.allergies` profile.
+
+    - If an intersection is found AND the header ``X-Allergen-Override: true`` is
+      absent, the request is rejected with ``409 Conflict``.
+    - If the override header is present, the log is written and a warning is
+      emitted to stdout.
+    - If the user has no biometric row or an empty allergies list, the check is
+      bypassed immediately (null-safety fast path).
+    """
     logger.info(
         f"[API] POST /nutrition/diary — user: {str(current_user.id)[:8]}, "
         f"meal: {payload.meal_type}, qty: {payload.quantity}"
     )
+
+    # --- Allergen Interceptor (v2.5.2) ---
+    # Fetch the latest biometric row to read user allergies
+    bio_stmt = (
+        select(UserBiometric)
+        .where(UserBiometric.user_id == current_user.id)
+        .order_by(UserBiometric.created_at.desc())
+        .limit(1)
+    )
+    bio_result = await db.execute(bio_stmt)
+    biometric = bio_result.scalar_one_or_none()
+
+    user_allergies: list[str] = []
+    if biometric and biometric.allergies:
+        user_allergies = [a.strip().lower() for a in biometric.allergies if a.strip()]
+
+    # Null-safety bypass: skip evaluation if the user has no known allergies
+    if user_allergies:
+        food_for_check = await db.get(Food, payload.food_id)
+        if food_for_check and food_for_check.allergens:
+            food_allergens = {a.strip().lower() for a in food_for_check.allergens if a.strip()}
+            offending = food_allergens & set(user_allergies)
+
+            if offending:
+                override_active = (
+                    x_allergen_override is not None
+                    and x_allergen_override.strip().lower() == "true"
+                )
+
+                if not override_active:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail={
+                            "error_code": "ALLERGEN_DETECTED",
+                            "offending_allergens": sorted(offending),
+                        },
+                    )
+
+                # Override is active — log the allergen collision warning to stdout
+                print(
+                    f"[ALLERGEN-WARN] User {str(current_user.id)[:8]} is logging a food "
+                    f"containing allergens they are allergic to: {sorted(offending)}. "
+                    "Override header X-Allergen-Override: true was present — proceeding."
+                )
+    # --- End Allergen Interceptor ---
 
     try:
         result = await nutrition_service.create_diary_log(
@@ -358,6 +420,9 @@ async def create_recipe(
         ))
 
     await db.commit()
+    # Refresh the recipe_food row to pick up DB-trigger-propagated allergens
+    # (trg_propagate_recipe_allergens fires on recipe_ingredients INSERT)
+    await db.refresh(recipe_food)
 
     return {
         "id": str(recipe_id),
@@ -371,6 +436,7 @@ async def create_recipe(
         "protein_per_100": protein_per_100,
         "carbs_per_100": carbs_per_100,
         "fat_per_100": fat_per_100,
+        "allergens": recipe_food.allergens or [],
         "measures": [
             {"id": str(g_measure_id), "measure_name": "g", "conversion_factor": 1.0, "is_default": False},
             {"id": str(serving_measure_id), "measure_name": "serving", "conversion_factor": serving_factor, "is_default": True},

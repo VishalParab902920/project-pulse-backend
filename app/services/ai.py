@@ -166,6 +166,14 @@ class AIService:
         "- Example: User says 'my usual breakfast' and memory describes their breakfast → true\n"
     )
 
+    _ALLERGEN_CONSTRAINT_TEMPLATE = (
+        "[CRITICAL CLINICAL-SAFETY CONSTRAINT]\n"
+        "The user has the following medical allergies: {user_allergies}.\n"
+        "Under no circumstances may you suggest, recommend, or instruct the user to consume any "
+        "foods, ingredients, recipes, or meals containing these allergens. "
+        "This is an absolute health constraint.\n\n"
+    )
+
     def __init__(self) -> None:
         """
         Initialize the service WITHOUT building any Gemini client.
@@ -311,10 +319,33 @@ class AIService:
             logger.error(f"[TRANSCRIBE] Pass 1 failed: {e}")
             raise
 
+    @staticmethod
+    def build_allergen_system_prefix(user_allergies: list[str]) -> str:
+        """
+        Formats the clinical-safety allergen constraint block.
+
+        Inject the returned string as a *prefix* on any GenAI system instruction
+        that may answer nutrition or health queries. When ``user_allergies`` is
+        empty the method returns an empty string (no-op).
+
+        Args:
+            user_allergies: Normalised (lowercase, stripped) allergen strings
+                            from ``user_biometrics.allergies``.
+
+        Returns:
+            str: Formatted constraint prefix, or empty string if list is empty.
+        """
+        if not user_allergies:
+            return ""
+        return AIService._ALLERGEN_CONSTRAINT_TEMPLATE.format(
+            user_allergies=", ".join(user_allergies)
+        )
+
     async def parse_verbatim_text_to_json(
         self,
         client: genai.Client,
         transcript: str,
+        user_allergies: list[str] | None = None,
     ) -> dict[str, Any]:
         """
         Pass 2: Structured JSON extraction from verbatim text.
@@ -326,6 +357,10 @@ class AIService:
         Args:
             client: The per-request resolved Gemini client (BYOK or server key).
             transcript: The verbatim text from Pass 1.
+            user_allergies: Optional list of user allergen strings. When provided
+                            and non-empty, a clinical-safety constraint is prepended
+                            to the system instruction so the model never recommends
+                            allergen-containing items.
 
         Returns:
             dict: Parsed structured data matching either NutritionEntry or WorkoutEntry schema.
@@ -335,13 +370,17 @@ class AIService:
         """
         logger.info(f"[PARSE] Pass 2 started — input: '{transcript[:100]}'")
 
+        # Build system prompt, optionally prepending the allergen constraint block
+        allergen_prefix = self.build_allergen_system_prefix(user_allergies or [])
+        system_instruction = allergen_prefix + self.STRUCTURED_PARSE_SYSTEM_PROMPT
+
         try:
             response = await asyncio.to_thread(
                 client.models.generate_content,
                 model=self.MODEL_NAME,
                 contents=f"Parse this fitness/health input into structured data:\n\n{transcript}",
                 config=types.GenerateContentConfig(
-                    system_instruction=self.STRUCTURED_PARSE_SYSTEM_PROMPT,
+                    system_instruction=system_instruction,
                     response_mime_type="application/json",
                     response_schema=ParsedEntry,
                     temperature=0.2,

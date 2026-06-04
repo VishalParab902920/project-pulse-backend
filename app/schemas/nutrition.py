@@ -181,6 +181,8 @@ class FoodCreate(BaseSchema):
     fat_per_100: Decimal = Field(ge=Decimal("0.0"))
     is_custom: bool = False
     measures: List[FoodMeasureCreate] = Field(default_factory=list)
+    # v2.5.2: Allergen tags (e.g. 'peanuts', 'dairy', 'wheat') stored in foods.allergens[]
+    allergens: List[str] = Field(default_factory=list)
 
     @field_validator("name", mode="before")
     @classmethod
@@ -208,6 +210,8 @@ class FoodResponse(BaseSchema):
     is_archived: bool = False
     created_by: Optional[uuid.UUID] = None
     measures: List[FoodMeasureResponse] = Field(default_factory=list)
+    # v2.5.2: Allergen tags surfaced in all food search / recipe responses
+    allergens: List[str] = Field(default_factory=list)
 
 
 class DiaryLogCreate(BaseSchema):

@@ -36,7 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.database import get_db
-from app.models.identity import Profile
+from app.models.identity import Profile, UserBiometric
 from app.schemas.identity import ProfileResponse
 from app.services.security import security_service
 
@@ -262,12 +262,22 @@ async def get_current_user(
                 dek_iv=encrypted_result["dek_iv"],
                 timezone="UTC",
             )
-
             db.add(profile)
+            await db.flush()  # Register profile.id in session before FK reference
+
+            # Co-provision a blank biometrics row in the same transaction.
+            # This enforces a strict 1:1 DB invariant between profiles and
+            # user_biometrics, guaranteeing GET /biometrics always returns 200 OK
+            # with null fields instead of a 404 for newly registered users.
+            blank_biometrics = UserBiometric(user_id=user_id)
+            db.add(blank_biometrics)
+
             await db.commit()
             await db.refresh(profile)
 
-            logger.info(f"[AUTH] Profile provisioned for user {str(user_id)[:8]}")
+            logger.info(
+                f"[AUTH] Profile + blank biometrics provisioned for user {str(user_id)[:8]}"
+            )
 
         except Exception as e:
             await db.rollback()

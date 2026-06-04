@@ -22,7 +22,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -59,6 +59,12 @@ class Food(Base):
         DateTime(timezone=True), default=datetime.utcnow, nullable=False
     )
 
+    # --- v2.5.2 additions (Phase 1 migration) ---
+    allergens: Mapped[list[str]] = mapped_column(
+        ARRAY(String(100)), nullable=False, server_default="'{}'"
+    )
+    """Allergen tags on this food entry (e.g. 'peanuts', 'wheat'). GIN-indexed."""
+
     # Relationships
     measures: Mapped[List["FoodMeasure"]] = relationship(
         "FoodMeasure", back_populates="food", cascade="all, delete-orphan", lazy="selectin"
@@ -72,6 +78,8 @@ class Food(Base):
         Index("idx_foods_barcode", "barcode", unique=True, postgresql_where=Column("barcode").isnot(None)),
         Index("idx_foods_verified_search", "is_verified", "name", "brand"),
         Index("idx_foods_archived", "is_archived"),
+        # GIN index for fast allergen array containment queries (v2.5.2)
+        Index("idx_foods_allergens", "allergens", postgresql_using="gin"),
     )
 
 

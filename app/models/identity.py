@@ -7,7 +7,7 @@ import uuid
 from datetime import date, datetime
 
 from sqlalchemy import Boolean, Date, ForeignKey, Integer, Numeric, String, Text
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -37,6 +37,8 @@ class Profile(Base):
     timezone: Mapped[str] = mapped_column(
         String(100), nullable=False, default="UTC", server_default="UTC"
     )
+    avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    full_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         nullable=False, server_default="now()"
     )
@@ -94,6 +96,38 @@ class UserBiometric(Base):
     target_carbs_g: Mapped[int | None] = mapped_column(Integer, nullable=True)
     target_fat_g: Mapped[int | None] = mapped_column(Integer, nullable=True)
     weight_kg: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+
+    # --- v2.5.2 additions (Phase 1 migration) ---
+    body_fat_pct: Mapped[float | None] = mapped_column(
+        Numeric(5, 2), nullable=True, default=None
+    )
+    """Body fat percentage. Clamped to [1.0, 60.0] at the service layer."""
+
+    allergies: Mapped[list[str]] = mapped_column(
+        ARRAY(String(100)), nullable=False, server_default="'{}'"
+    )
+    """User allergen profile tags (e.g. 'peanuts', 'dairy'). GIN-indexed."""
+
+    primary_training_modality: Mapped[str] = mapped_column(
+        String(50), nullable=False, server_default="'general'"
+    )
+    """Primary sport/training style: 'strength', 'endurance', 'hybrid', 'functional', 'general'."""
+
+    manual_target_override: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
+    )
+    """When True, auto-calculated BMR/TDEE/macro targets are suppressed."""
+
+    preferred_solid_unit: Mapped[str] = mapped_column(
+        String(10), nullable=False, server_default="'metric'"
+    )
+    """Solid food display unit: 'metric' (g/kg) or 'imperial' (oz/lb)."""
+
+    preferred_liquid_unit: Mapped[str] = mapped_column(
+        String(10), nullable=False, server_default="'metric'"
+    )
+    """Liquid display unit: 'metric' (ml/l) or 'imperial' (fl_oz)."""
+
     created_at: Mapped[datetime] = mapped_column(
         nullable=False, server_default="now()"
     )

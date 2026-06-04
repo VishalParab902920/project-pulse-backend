@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.ai import ChatMessage, Conversation
-from app.models.identity import Profile
+from app.models.identity import Profile, UserBiometric
 from app.routers.dependencies import get_current_user
 from app.schemas.identity import ProfileResponse
 from app.schemas.nutrition import NutritionLogCreate, NutritionLogResponse
@@ -219,9 +219,34 @@ async def capture_input(
     except Exception as e:
         logger.warning(f"[CAPTURE] Memory retrieval failed (non-fatal): {e}")
 
-    # Step 3: Parse text into structured JSON
+    # Step 2b: Fetch user allergies for allergen-safety constraint injection (non-fatal)
+    user_allergies: list[str] = []
     try:
-        parsed_result = await ai_service.parse_verbatim_text_to_json(client, transcript)
+        bio_stmt = (
+            select(UserBiometric)
+            .where(UserBiometric.user_id == current_user.id)
+            .order_by(UserBiometric.created_at.desc())
+            .limit(1)
+        )
+        bio_result = await db.execute(bio_stmt)
+        biometric = bio_result.scalar_one_or_none()
+        if biometric and biometric.allergies:
+            user_allergies = [
+                a.strip().lower() for a in biometric.allergies if a.strip()
+            ]
+        if user_allergies:
+            logger.info(
+                f"[CAPTURE] Allergen constraint active for user {str(current_user.id)[:8]}: "
+                f"{user_allergies}"
+            )
+    except Exception as e:
+        logger.warning(f"[CAPTURE] Allergen fetch failed (non-fatal): {e}")
+
+    # Step 3: Parse text into structured JSON (with allergen safety constraint)
+    try:
+        parsed_result = await ai_service.parse_verbatim_text_to_json(
+            client, transcript, user_allergies=user_allergies
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
     except Exception as e:
@@ -235,6 +260,7 @@ async def capture_input(
         return await _handle_nutrition_entry(
             db=db, user_id=current_user.id, user_timezone=current_user.timezone,
             parsed_result=parsed_result, raw_transcript=transcript, client=client,
+            user_allergies=user_allergies,
         )
     elif entry_type == "workout":
         return await _handle_workout_entry(
@@ -255,6 +281,7 @@ async def _handle_nutrition_entry(
     parsed_result: dict,
     raw_transcript: str,
     client: genai.Client,
+    user_allergies: list[str] | None = None,
 ) -> dict:
     """
     Processes nutrition entry with localized meal heuristic and returns rich payload.
